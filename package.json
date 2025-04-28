@@ -1,0 +1,20 @@
+{
+  "name": "js_to_pdf_editor",
+  "version": "1.0.0",
+  "description": "js to pdf editor",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "pdf",
+    "js"
+  ],
+  "author": "sas0mir",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.1.0",
+    "pdf-lib": "^1.17.1"
+  }
+}
