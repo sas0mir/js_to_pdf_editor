@@ -1,60 +1,94 @@
+// app.js
 const express = require('express');
-const app = express();
-const { PDFDocument } = require('pdf-lib');
+const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
-const { XMLParser } = require('fast-xml-parser');
-const _ = require('lodash');
+const { PDFDocument } = require('pdf-lib');
+const xml2js = require('xml2js');
 
-app.get('/', async (req, res) => {
-    const page = await editPdf();
-    const data = await getNewData();
-    console.log('KEYS-->', _.get(data, ['yml_catalog', 'shop', 'offers', 'offer']));
-    res.writeHead(200, {
-        'Content-Type': 'text/html'
-    });
-  res.end(`<div>
-    <h2>JS to PDF</h2>
-    <p>${_.get(data, ['yml_catalog', 'shop', 'categories', 'category'])}</p>
-    <p>${_.get(data, ['yml_catalog', 'shop', 'offers', 'offer'])}</p>
-    <div>`);
-});
-app.listen(3000, () => {
-  console.log('Server listening on port 3000');
+const app = express();
+const upload = multer({ dest: 'uploads/' });
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+
+// Serve static HTML form
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-async function getNewData() {
-  const xmlParser = new XMLParser();
-  const xml = await fetch('https://rostmetall.ru/yandex.xml');
-  const text = await xml.text();
-  const data = await xmlParser.parse(text, true);
-  return data
+// Handle upload of XML or JSON
+app.post('/upload-data', upload.single('dataFile'), async (req, res) => {
+  const filePath = req.file.path;
+  const mimeType = req.file.mimetype;
+
+  let data = {};
+
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+
+    if (mimeType === 'application/json') {
+      data = JSON.parse(raw);
+    } else if (mimeType === 'text/xml' || mimeType === 'application/xml') {
+      const parsed = await xml2js.parseStringPromise(raw);
+      data = parsed;
+    } else {
+      return res.status(400).send('Unsupported file type');
+    }
+
+    const flat = flattenObject(data);
+
+    fs.unlinkSync(filePath); // cleanup
+    res.json(flat);
+  } catch (err) {
+    res.status(500).send('Parsing failed: ' + err.message);
+  }
+});
+
+// Handle PDF replacement
+app.post('/replace-pdf', upload.single('pdfFile'), async (req, res) => {
+  const filePath = req.file.path;
+  const { replacements } = req.body;
+  const parsedReplacements = JSON.parse(replacements);
+
+  try {
+    const pdfBytes = fs.readFileSync(filePath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const pages = pdfDoc.getPages();
+
+    for (const page of pages) {
+      let content = await page.getTextContent(); // won't work directly
+
+      const form = pdfDoc.getForm();
+      for (const key in parsedReplacements) {
+        try {
+          const field = form.getTextField(key);
+          field.setText(parsedReplacements[key]);
+        } catch (e) {
+          // Field not found
+        }
+      }
+    }
+
+    const modifiedPdf = await pdfDoc.save();
+    fs.unlinkSync(filePath); // cleanup
+
+    res.contentType('application/pdf');
+    res.send(modifiedPdf);
+  } catch (err) {
+    res.status(500).send('PDF processing failed: ' + err.message);
+  }
+});
+
+function flattenObject(obj, parent = '', res = {}) {
+  for (let key in obj) {
+    const propName = parent ? parent + '.' + key : key;
+    if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) {
+      flattenObject(obj[key], propName, res);
+    } else {
+      res[propName] = Array.isArray(obj[key]) ? obj[key][0] : obj[key];
+    }
+  }
+  return res;
 }
 
-async function editPdf() {
-  // Load a PDFDocument from the existing PDF bytes
-  const pdfPath = path.join(__dirname, 'katalog.pdf');
-  const existingPdfBytes = await fs.readFileSync(pdfPath);
-  console.log('EXISTING PDF BYTES-->', typeof existingPdfBytes, existingPdfBytes.byteLength);
-  const pdfDoc = await PDFDocument.load(existingPdfBytes);
-
-  // Get the first page of the document
-  const pages = pdfDoc.getPages();
-  const page = pages[6]
-    console.log('PAGE-->', typeof page);
-  return page
-
-  // Draw a string of text diagonally across the first page
-//   page.drawText('This is a test', {
-//     x: 50,
-//     y: 700,
-//     size: 30,
-//     color: rgb(0.95, 0.1, 0.1),
-//   });
-
-  // Serialize the PDFDocument to bytes (a Uint8Array)
-  //const pdfBytes = await pdfDoc.save();
-
-  // Write the PDF to a file
-  //fs.writeFileSync('edited.pdf', pdfBytes);
-}
+app.listen(3000, () => console.log('Server running on http://localhost:3000'));

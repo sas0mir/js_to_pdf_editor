@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Upload and Replace PDF</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    #preview, #form-section, #loading, #result { display: none; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>Upload JSON or XML</h1>
+  <form id="upload-form">
+    <input type="file" name="dataFile" accept=".json,.xml" required />
+    <button type="submit">Upload</button>
+  </form>
+
+  <div id="form-section">
+    <h2>Select Replacements</h2>
+    <form id="replace-form">
+      <div id="checkboxes"></div>
+      <br />
+      <label>Upload PDF: <input type="file" name="pdfFile" accept=".pdf" required /></label>
+      <br /><br />
+      <button type="submit">Replace and View PDF</button>
+    </form>
+  </div>
+
+  <div id="loading">Processing... Please wait.</div>
+  <div id="result">
+    <h2>Modified PDF:</h2>
+    <iframe id="pdf-viewer" width="100%" height="600px"></iframe>
+  </div>
+
+  <script>
+    const uploadForm = document.getElementById('upload-form');
+    const replaceForm = document.getElementById('replace-form');
+    const formSection = document.getElementById('form-section');
+    const checkboxesDiv = document.getElementById('checkboxes');
+    const loadingDiv = document.getElementById('loading');
+    const resultDiv = document.getElementById('result');
+    const pdfViewer = document.getElementById('pdf-viewer');
+
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(uploadForm);
+      const res = await fetch('/upload-data', { method: 'POST', body: formData });
+      const data = await res.json();
+
+      checkboxesDiv.innerHTML = '';
+      for (const key in data) {
+        const id = 'chk_' + key.replace(/\./g, '_');
+        checkboxesDiv.innerHTML += `
+          <div>
+            <input type="checkbox" id="${id}" name="${key}" value="${data[key]}" checked />
+            <label for="${id}">${key} = ${data[key]}</label>
+          </div>`;
+      }
+
+      formSection.style.display = 'block';
+    });
+
+    replaceForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      loadingDiv.style.display = 'block';
+      resultDiv.style.display = 'none';
+
+      const formData = new FormData(replaceForm);
+      const replacements = {};
+      for (const [key, value] of formData.entries()) {
+        if (key === 'pdfFile') continue;
+        replacements[key] = value;
+      }
+      formData.set('replacements', JSON.stringify(replacements));
+
+      const res = await fetch('/replace-pdf', { method: 'POST', body: formData });
+      const blob = await res.blob();
+      const pdfUrl = URL.createObjectURL(blob);
+
+      loadingDiv.style.display = 'none';
+      resultDiv.style.display = 'block';
+      pdfViewer.src = pdfUrl;
+    });
+  </script>
+</body>
+</html>
